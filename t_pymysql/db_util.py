@@ -1,19 +1,20 @@
-import typing
+# -*- coding:utf-8 -*-
 
+import typing
 import pymysql
 import pymysql.cursors
 
 
-class DbUtil:
+class DbManager:
     connection = None
 
     def __init__(self, db_config: dict = None):
         if db_config is None:
             db_config = {}
         self.db_config = db_config
-        self.__connect()
+        self._connect()
 
-    def __connect(self):
+    def _connect(self):
         if self.connection is None:
             self.connection = pymysql.connect(
                 host=self.db_config.get('HOST'),
@@ -24,12 +25,14 @@ class DbUtil:
                 charset=self.db_config.get('CHARSET'),
                 cursorclass=pymysql.cursors.DictCursor
             )
+            self.connection.ping()
 
     def close(self):
         if self.connection is not None:
             self.connection.close()
 
     def execute(self, sql) -> bool:
+        """不关心sql结果返回值"""
         with self.connection.cursor() as cursor:
             try:
                 cursor.execute(sql)
@@ -40,16 +43,30 @@ class DbUtil:
                 self.connection.rollback()
                 return False
 
-    def fetchone(self, sql) -> typing.Dict | None:
+    def fetchone(self, table_name: str, columns, where=None, params=None) -> typing.Dict | None:
+        if columns and not isinstance(columns, str):
+            columns = ', '.join(columns)
+
+        sql = f"SELECT {columns} FROM {table_name}"
+        if where:
+            sql += f" WHERE {where}"
+
         with self.connection.cursor() as cursor:
             try:
-                cursor.execute(sql)
+                cursor.execute(sql, params)
                 return cursor.fetchone()
             except Exception as e:
                 print(e)
                 return None
 
-    def fetchall(self, sql) -> typing.Tuple | None:
+    def fetchall(self, table_name: str, columns="*", where=None, params=None) -> typing.Tuple | None:
+        if columns and not isinstance(columns, str):
+            columns = ', '.join(columns)
+
+        sql = f"SELECT {columns} FROM {table_name}"
+        if where:
+            sql += f" WHERE {where}"
+
         with self.connection.cursor() as cursor:
             try:
                 cursor.execute(sql)
@@ -58,10 +75,67 @@ class DbUtil:
                 print(e)
                 return None
 
-    def insert(self, sql) -> int:
+    def insert(self, table_name: str, data: dict) -> int:
+        if not table_name or len(data) == 0:
+            return 0
+
+        keys = ', '.join(data.keys())
+        values = ', '.join(['%s'] * len(data))
+        sql = f"INSERT INTO {table_name} ({keys}) VALUES ({values})"
         with self.connection.cursor() as cursor:
             try:
-                cursor.execute(sql)
+                cursor.execute(sql, tuple(data.values()))
+                self.connection.commit()
+                return cursor.lastrowid
+            except Exception as e:
+                print(e)
+                self.connection.rollback()
+                return 0
+
+    def insert_many(self, table_name: str, column: str, data: list) -> int:
+        if not table_name or len(data) == 0 or not column:
+            return 0
+
+        column_list = column.split(',')
+        values = ', '.join(['%s'] * len(column_list))
+        sql = f"INSERT INTO {table_name} ({column}) VALUES ({values})"
+        with self.connection.cursor() as cursor:
+            try:
+                cursor.executemany(sql, data)
+                self.connection.commit()
+                return self.connection.affected_rows()
+            except Exception as e:
+                print(e)
+                self.connection.rollback()
+                return 0
+
+    def update(self, table_name: str, data: dict, where=None, params=None):
+        if not where:
+            print(ValueError("缺失WHERE条件"))
+            return 0
+
+        set_values = ', '.join([f"{k}=%s" for k in data.keys()])
+        sql = f"UPDATE {table_name} SET {set_values} WHERE {where}"
+        params = tuple(data.values()) + params if params else tuple(data.values())
+        with self.connection.cursor() as cursor:
+            try:
+                cursor.execute(sql, params)
+                self.connection.commit()
+                return self.connection.affected_rows()
+            except Exception as e:
+                print(e)
+                self.connection.rollback()
+                return 0
+
+    def delete(self, table_name: str, where=None, params=None):
+        if not where:
+            print(ValueError("缺失WHERE条件"))
+            return 0
+
+        sql = f"DELETE FROM {table_name} WHERE {where}"
+        with self.connection.cursor() as cursor:
+            try:
+                cursor.execute(sql, params)
                 self.connection.commit()
                 return self.connection.affected_rows()
             except Exception as e:
@@ -70,43 +144,45 @@ class DbUtil:
                 return 0
 
 
-def tt():
-    with DbUtil() as sql:
-        print("sssssss")
-        raise Exception("asdasd")
-        pass
-
-    a = 1
-    print("asdasd")
-    return a
-
-
 if __name__ == '__main__':
     config = {
         "HOST": "192.168.200.253",
         "PORT": 3400,
         "USERNAME": "root",
         "PASSWORD": "123456",
-        "DATABASE": "cad",
+        "DATABASE": "govstat",
         "CHARSET": "utf8mb4",
     }
-    dbutil = DbUtil(config)
+    db_manager = DbManager(config)
 
     # 插入数据
     # insert_sql = "INSERT INTO `province`(`name`,`code`,`url`) values('山西省', '121212', 'http://shanxi.com'),('河北省', '2222', 'http://hebei.com')"
-    # res = dbutil.execute(insert_sql)
+    # res = db_manager.execute(insert_sql)
     # print("res:", res)
     # if res > 0:
     #     print("插入成功")
     # else:
     #     print("插入失败")
 
+    # 插入数据
+    # res = db_manager.insert('province', {'name': '陕西省'})
+    # print("res:", res)
+    # if res > 0:
+    #     print("插入成功")
+    # else:
+    #     print("插入失败")
+
+    # 插入多条数据
+    # column = "name,code,url"
+    # data = [('山西省', 12, 'xxxx'), ('河北省', 13, 'xxxxx')]
+    # res = db_manager.insert_many('province_t', column, data)
+    # print('res:', res)
+
     # 查询单条数据
-    # fetchone_sql = "SELECT * from `province` where name = '山西省1'"
-    # province_record = dbutil.fetchone(fetchone_sql)
+    # province_record = db_manager.fetchone('province', columns='*', where="name=%s", params=('山西省',))
     # print("province_record:", province_record)
 
     # 查询多条数据
-    fetchall_sql = "SELECT * from `province`"
-    province_records = dbutil.fetchall(fetchall_sql)
-    print("province_records:", province_records)
+    # province_records = db_manager.fetchall('province', columns='*')
+    # print("province_records:", province_records)
+    pass
