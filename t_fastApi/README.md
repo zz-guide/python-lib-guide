@@ -12,7 +12,7 @@ pip install "uvicorn[standard]"
 
 ## 运行命令
 ```shell
-uvicorn main:app --reload
+uvicorn main:app [--reload]
 ```
 
 ## 文档

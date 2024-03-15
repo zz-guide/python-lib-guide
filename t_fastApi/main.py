@@ -1,17 +1,19 @@
-from typing import Union
+from datetime import datetime
 
-from fastapi import FastAPI
-import swagger
+from src.routes import student
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
+from src.exception import UnicornException
 
 app = FastAPI()
 
-
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
+app.include_router(student.router)
 
 
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: Union[str, None] = None):
-    return {"item_id": item_id, "q": q}
+@app.exception_handler(UnicornException)
+async def unicorn_exception_handler(request: Request, exc: UnicornException):
+    return JSONResponse(
+        status_code=418,
+        content={"msg": exc.name, "time": "2122"},
+    )
